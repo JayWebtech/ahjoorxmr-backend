@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Patch,
+  Delete,
   Body,
   Param,
   Query,
@@ -13,6 +14,7 @@ import {
   Request,
   ParseIntPipe,
   DefaultValuePipe,
+  ParseBoolPipe,
   Version,
 } from '@nestjs/common';
 import {
@@ -123,6 +125,13 @@ export class GroupsController {
     description: 'Items per page',
     example: 10,
   })
+  @ApiQuery({
+    name: 'includeArchived',
+    required: false,
+    type: Boolean,
+    description: 'Include soft-deleted groups',
+    example: false,
+  })
   @ApiResponse({
     status: 200,
     description: 'Successfully retrieved groups',
@@ -131,8 +140,10 @@ export class GroupsController {
   async findAll(
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+    @Query('includeArchived', new DefaultValuePipe(false), ParseBoolPipe)
+    includeArchived: boolean,
   ): Promise<PaginatedGroupsResponseDto> {
-    const result = await this.groupsService.findAll(page, limit);
+    const result = await this.groupsService.findAll(page, limit, includeArchived);
     return {
       data: result.data.map((g) => this.toGroupResponse(g)),
       total: result.total,
@@ -264,6 +275,36 @@ export class GroupsController {
       adminWallet,
     );
     return this.toGroupResponse(group);
+  }
+
+  /**
+   * Soft-deletes a group (archive). Admin-only — only the group admin may delete.
+   *
+   * @param req - Authenticated request object
+   * @param id - The UUID of the group
+   * @throws NotFoundException if the group doesn't exist
+   * @throws ForbiddenException if not the group admin
+   */
+  @Delete(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Archive (soft-delete) a group',
+    description: 'Soft-deletes a group by setting deletedAt. Only the group admin can delete.',
+  })
+  @ApiParam({ name: 'id', description: 'Group UUID', format: 'uuid' })
+  @ApiResponse({ status: 204, description: 'Group archived successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized', type: ErrorResponseDto })
+  @ApiResponse({ status: 403, description: 'Forbidden - only group admin can delete', type: ErrorResponseDto })
+  @ApiResponse({ status: 404, description: 'Group not found', type: ErrorResponseDto })
+  @AuditLog({ action: 'DELETE', resource: 'GROUP' })
+  async remove(
+    @Request() req: { user: { id: string; walletAddress: string } },
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    const adminWallet = req.user.walletAddress || req.user.id;
+    await this.groupsService.softDelete(id, adminWallet);
   }
 
   /**

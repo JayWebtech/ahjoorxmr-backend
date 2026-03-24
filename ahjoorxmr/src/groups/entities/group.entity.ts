@@ -1,4 +1,4 @@
-import { Entity, Column, OneToMany } from 'typeorm';
+import { Entity, Column, OneToMany, DeleteDateColumn } from 'typeorm';
 import { BaseEntity } from '../../common/entities/base.entity';
 import { GroupStatus } from './group-status.enum';
 import { Membership } from '../../memberships/entities/membership.entity';
@@ -42,6 +42,9 @@ export class Group extends BaseEntity {
 
   @Column('int')
   minMembers: number;
+
+  @DeleteDateColumn({ nullable: true })
+  deletedAt: Date | null;
 
   @OneToMany(() => Membership, (membership) => membership.group)
   memberships: Membership[];

@@ -77,28 +77,37 @@ export class GroupsService {
 
   /**
    * Returns a paginated list of all ROSCA groups ordered by creation date (newest first).
+   * Soft-deleted groups are excluded by default unless includeArchived is true.
    *
    * @param page - Page number (1-indexed)
    * @param limit - Number of items per page
+   * @param includeArchived - Whether to include soft-deleted groups
    * @returns Paginated result with data, total count, page, and limit
    */
   async findAll(
     page: number = 1,
     limit: number = 10,
+    includeArchived: boolean = false,
   ): Promise<{ data: Group[]; total: number; page: number; limit: number }> {
     this.logger.log(
-      `Fetching groups page=${page} limit=${limit}`,
+      `Fetching groups page=${page} limit=${limit} includeArchived=${includeArchived}`,
       'GroupsService',
     );
 
     try {
       const skip = (page - 1) * limit;
 
-      const [data, total] = await this.groupRepository.findAndCount({
-        order: { createdAt: 'DESC' },
-        skip,
-        take: limit,
-      });
+      const qb = this.groupRepository
+        .createQueryBuilder('group')
+        .orderBy('group.createdAt', 'DESC')
+        .skip(skip)
+        .take(limit);
+
+      if (includeArchived) {
+        qb.withDeleted();
+      }
+
+      const [data, total] = await qb.getManyAndCount();
 
       this.logger.log(
         `Found ${total} group(s); returning page ${page}`,
@@ -226,6 +235,7 @@ export class GroupsService {
 
   /**
    * Returns all groups that the authenticated user (by userId) belongs to as a member.
+   * Excludes soft-deleted groups.
    *
    * @param userId - The UUID of the authenticated user
    * @returns Array of Group entities the user is a member of
@@ -239,7 +249,9 @@ export class GroupsService {
         relations: ['group'],
       });
 
-      const groups = memberships.map((m) => m.group).filter(Boolean);
+      const groups = memberships
+        .map((m) => m.group)
+        .filter((g) => g && !g.deletedAt);
 
       this.logger.log(
         `Found ${groups.length} group(s) for user ${userId}`,
@@ -255,6 +267,41 @@ export class GroupsService {
       );
       throw error;
     }
+  }
+
+  /**
+   * Soft-deletes a group by setting deletedAt timestamp.
+   * Only the group admin can delete the group.
+   *
+   * @param id - The UUID of the group
+   * @param adminWallet - Wallet address of the requesting admin
+   * @throws NotFoundException if the group doesn't exist
+   * @throws ForbiddenException if the requester is not the group admin
+   */
+  async softDelete(id: string, adminWallet: string): Promise<void> {
+    this.logger.log(
+      `Soft-deleting group ${id} by admin ${adminWallet}`,
+      'GroupsService',
+    );
+
+    const group = await this.groupRepository.findOne({ where: { id } });
+
+    if (!group) {
+      this.logger.warn(`Group ${id} not found for deletion`, 'GroupsService');
+      throw new NotFoundException(`Group with id ${id} not found`);
+    }
+
+    if (group.adminWallet !== adminWallet) {
+      this.logger.warn(
+        `Admin wallet mismatch: ${adminWallet} is not the admin of group ${id}`,
+        'GroupsService',
+      );
+      throw new ForbiddenException('Only the group admin can delete this group');
+    }
+
+    await this.groupRepository.softDelete(id);
+
+    this.logger.log(`Group ${id} soft-deleted successfully`, 'GroupsService');
   }
 
   /**
