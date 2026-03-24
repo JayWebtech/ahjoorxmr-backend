@@ -27,16 +27,17 @@ export class ContributionsService {
     private readonly logger: WinstonLogger,
     private readonly stellarService: StellarService,
     private readonly configService: ConfigService,
-  ) {}
+  ) { }
 
   /**
-   * Validates that a group exists.
+   * Validates that a group exists and returns it.
    *
    * @param groupId - The UUID of the group to validate
+   * @returns The Group entity
    * @throws BadRequestException if the group doesn't exist
    * @private
    */
-  private async validateGroupExists(groupId: string): Promise<void> {
+  private async validateGroupExists(groupId: string): Promise<Group> {
     const group = await this.groupRepository.findOne({
       where: { id: groupId },
     });
@@ -45,6 +46,8 @@ export class ContributionsService {
       this.logger.warn(`Group ${groupId} not found`, 'ContributionsService');
       throw new BadRequestException('Invalid groupId or userId');
     }
+
+    return group;
   }
 
   /**
@@ -68,8 +71,8 @@ export class ContributionsService {
     );
 
     try {
-      // Validate group exists
-      await this.validateGroupExists(groupId);
+      // Validate group exists and fetch it
+      const group = await this.validateGroupExists(groupId);
 
       // Verify contribution if enabled
       const shouldVerify = this.configService.get<boolean>(
@@ -77,21 +80,51 @@ export class ContributionsService {
         true,
       );
       if (shouldVerify) {
-        const isValid =
-          await this.stellarService.verifyContribution(transactionHash);
-        if (!isValid) {
-          this.logger.warn(
-            `Contribution verification failed for transaction hash ${transactionHash}`,
+        // Use group's contract address if available, fall back to global address
+        if (group.contractAddress) {
+          const isValid =
+            await this.stellarService.verifyContributionForGroup(
+              transactionHash,
+              group.contractAddress,
+            );
+          if (!isValid) {
+            this.logger.warn(
+              `Contribution verification failed for transaction hash ${transactionHash} against group contract ${group.contractAddress}`,
+              'ContributionsService',
+            );
+            throw new BadRequestException(
+              'Transaction hash does not correspond to a valid contribution',
+            );
+          }
+          this.logger.log(
+            `Contribution verification successful for transaction hash ${transactionHash} against group contract ${group.contractAddress}`,
             'ContributionsService',
           );
-          throw new BadRequestException(
-            'Transaction hash does not correspond to a valid contribution',
+        } else {
+          // Fall back to global contract address
+          this.logger.warn(
+            `Group ${groupId} has no contractAddress, falling back to global CONTRACT_ADDRESS`,
+            'ContributionsService',
+          );
+          const isValid =
+            await this.stellarService.verifyContributionForGroup(
+              transactionHash,
+              null,
+            );
+          if (!isValid) {
+            this.logger.warn(
+              `Contribution verification failed for transaction hash ${transactionHash}`,
+              'ContributionsService',
+            );
+            throw new BadRequestException(
+              'Transaction hash does not correspond to a valid contribution',
+            );
+          }
+          this.logger.log(
+            `Contribution verification successful for transaction hash ${transactionHash}`,
+            'ContributionsService',
           );
         }
-        this.logger.log(
-          `Contribution verification successful for transaction hash ${transactionHash}`,
-          'ContributionsService',
-        );
       }
 
       // Check for duplicate transaction hash

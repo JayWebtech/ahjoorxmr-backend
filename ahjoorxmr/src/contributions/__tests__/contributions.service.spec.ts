@@ -52,6 +52,7 @@ describe('ContributionsService', () => {
     };
     stellarService = {
       verifyContribution: jest.fn(),
+      verifyContributionForGroup: jest.fn(),
     };
     configService = {
       get: jest.fn(),
@@ -150,6 +151,84 @@ describe('ContributionsService', () => {
       await expect(
         service.createContribution(createContributionDto),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should use group contractAddress when available', async () => {
+      const groupWithContract = {
+        id: 'group-1',
+        contractAddress: 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4',
+      };
+      configService.get!.mockReturnValue(true);
+      groupRepository.findOne!.mockResolvedValue(groupWithContract);
+      stellarService.verifyContributionForGroup!.mockResolvedValue(true);
+      contributionRepository.findOne!.mockResolvedValue(null);
+      contributionRepository.create!.mockReturnValue(mockContribution);
+      contributionRepository.save!.mockResolvedValue(mockContribution);
+
+      const result = await service.createContribution(createContributionDto);
+
+      expect(result).toEqual(mockContribution);
+      expect(stellarService.verifyContributionForGroup).toHaveBeenCalledWith(
+        '0x123',
+        'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4',
+      );
+      expect(contributionRepository.save).toHaveBeenCalled();
+    });
+
+    it('should fall back to global contract address when group contractAddress is null', async () => {
+      const groupWithoutContract = {
+        id: 'group-1',
+        contractAddress: null,
+      };
+      configService.get!.mockReturnValue(true);
+      groupRepository.findOne!.mockResolvedValue(groupWithoutContract);
+      stellarService.verifyContributionForGroup!.mockResolvedValue(true);
+      contributionRepository.findOne!.mockResolvedValue(null);
+      contributionRepository.create!.mockReturnValue(mockContribution);
+      contributionRepository.save!.mockResolvedValue(mockContribution);
+
+      const result = await service.createContribution(createContributionDto);
+
+      expect(result).toEqual(mockContribution);
+      expect(stellarService.verifyContributionForGroup).toHaveBeenCalledWith(
+        '0x123',
+        null,
+      );
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('falling back to global CONTRACT_ADDRESS'),
+        'ContributionsService',
+      );
+      expect(contributionRepository.save).toHaveBeenCalled();
+    });
+
+    it('should throw BadRequestException when verification fails against group contract', async () => {
+      const groupWithContract = {
+        id: 'group-1',
+        contractAddress: 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4',
+      };
+      configService.get!.mockReturnValue(true);
+      groupRepository.findOne!.mockResolvedValue(groupWithContract);
+      stellarService.verifyContributionForGroup!.mockResolvedValue(false);
+
+      await expect(
+        service.createContribution(createContributionDto),
+      ).rejects.toThrow(BadRequestException);
+      expect(contributionRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('should throw BadRequestException when verification fails against global contract', async () => {
+      const groupWithoutContract = {
+        id: 'group-1',
+        contractAddress: null,
+      };
+      configService.get!.mockReturnValue(true);
+      groupRepository.findOne!.mockResolvedValue(groupWithoutContract);
+      stellarService.verifyContributionForGroup!.mockResolvedValue(false);
+
+      await expect(
+        service.createContribution(createContributionDto),
+      ).rejects.toThrow(BadRequestException);
+      expect(contributionRepository.save).not.toHaveBeenCalled();
     });
   });
 

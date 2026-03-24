@@ -95,6 +95,48 @@ export class StellarService {
     }
   }
 
+  /**
+   * Verifies a contribution transaction against a specific group's contract address.
+   * Falls back to the global CONTRACT_ADDRESS if the group's contractAddress is null.
+   *
+   * @param txHash - The transaction hash to verify
+   * @param groupContractAddress - The group's specific contract address (can be null)
+   * @returns true if the transaction is a valid contribution to the specified contract
+   * @throws BadRequestException if transaction hash is missing
+   * @throws BadGatewayException if RPC communication fails
+   * @throws InternalServerErrorException if configuration is missing
+   */
+  async verifyContributionForGroup(
+    txHash: string,
+    groupContractAddress: string | null,
+  ): Promise<boolean> {
+    if (!txHash) {
+      throw new BadRequestException('Transaction hash is required');
+    }
+
+    this.validateConfiguration();
+    try {
+      const transaction = await this.server.getTransaction(txHash);
+      if (!transaction) {
+        return false;
+      }
+
+      const status = String(
+        transaction.status ?? transaction.txStatus ?? '',
+      ).toLowerCase();
+      if (status && status !== 'success') {
+        return false;
+      }
+
+      return this.isContributionCallForGroup(transaction, groupContractAddress);
+    } catch (error) {
+      throw this.mapRpcError(
+        'Unable to verify contribution transaction',
+        error,
+      );
+    }
+  }
+
   verifySignature(
     walletAddress: string,
     message: string,
@@ -212,15 +254,97 @@ export class StellarService {
 
     const directMethod = String(
       transaction.functionName ??
-        transaction.function_name ??
-        transaction.method ??
-        '',
+      transaction.function_name ??
+      transaction.method ??
+      '',
     ).toLowerCase();
     const directContract = String(
       transaction.contractAddress ??
-        transaction.contract_address ??
-        transaction.contractId ??
-        '',
+      transaction.contract_address ??
+      transaction.contractId ??
+      '',
+    );
+
+    if (
+      directMethod === 'contribute' &&
+      (!directContract || directContract === contractAddress)
+    ) {
+      return true;
+    }
+
+    const envelopeXdr =
+      transaction.envelopeXdr ??
+      transaction.envelope_xdr ??
+      transaction.envelope;
+    if (!envelopeXdr || typeof envelopeXdr !== 'string') {
+      return false;
+    }
+
+    try {
+      const envelope = (StellarSdk as any).xdr.TransactionEnvelope.fromXDR(
+        envelopeXdr,
+        'base64',
+      );
+      const txContainer =
+        (typeof envelope.v1 === 'function' && envelope.v1()?.tx?.()) ||
+        (typeof envelope.tx === 'function' && envelope.tx()) ||
+        null;
+      const operations = txContainer?.operations?.() ?? [];
+
+      for (const operation of operations) {
+        const body = operation.body?.();
+        const invokeOp = body?.invokeHostFunctionOp?.();
+        const hostFunction = invokeOp?.hostFunction?.();
+        const invokeContract = hostFunction?.invokeContract?.();
+
+        if (!invokeContract) {
+          continue;
+        }
+
+        const functionName = this.readFunctionName(invokeContract);
+        const operationContract = this.readContractAddress(invokeContract);
+        if (
+          functionName === 'contribute' &&
+          (!operationContract || operationContract === contractAddress)
+        ) {
+          return true;
+        }
+      }
+    } catch {
+      return false;
+    }
+
+    return false;
+  }
+  /**
+   * Checks if a transaction is a contribution call to a specific contract address.
+   * Falls back to the global CONTRACT_ADDRESS if groupContractAddress is null.
+   *
+   * @param transaction - The transaction object from Stellar RPC
+   * @param groupContractAddress - The group's specific contract address (can be null)
+   * @returns true if the transaction is a 'contribute' call to the specified contract
+   * @private
+   */
+  private isContributionCallForGroup(
+    transaction: any,
+    groupContractAddress: string | null,
+  ): boolean {
+    const contractAddress = groupContractAddress || this.defaultContractAddress;
+    if (!contractAddress) {
+      return false;
+    }
+
+    const directMethod = String(
+      transaction.functionName ??
+      transaction.function_name ??
+      transaction.method ??
+      '',
+    ).toLowerCase();
+    const directContract = String(
+      transaction.contractAddress ??
+      transaction.contract_address ??
+      transaction.contractId ??
+      '',
     );
 
     if (

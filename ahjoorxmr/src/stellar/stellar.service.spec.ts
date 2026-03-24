@@ -124,6 +124,83 @@ describe('StellarService', () => {
     });
   });
 
+  describe('verifyContributionForGroup()', () => {
+    it('throws BadRequestException when tx hash is empty', async () => {
+      await expect(
+        service.verifyContributionForGroup('', 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('returns true for valid contribute transaction with group contract address', async () => {
+      const groupContractAddress = 'CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBSC4';
+      mockServer.getTransaction.mockResolvedValue({
+        status: 'SUCCESS',
+        functionName: 'contribute',
+        contractAddress: groupContractAddress,
+      });
+
+      await expect(
+        service.verifyContributionForGroup('tx-123', groupContractAddress),
+      ).resolves.toBe(true);
+    });
+
+    it('returns true for valid contribute transaction with null group contract address (uses global)', async () => {
+      mockServer.getTransaction.mockResolvedValue({
+        status: 'SUCCESS',
+        functionName: 'contribute',
+        contractAddress:
+          'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4',
+      });
+
+      await expect(
+        service.verifyContributionForGroup('tx-123', null),
+      ).resolves.toBe(true);
+    });
+
+    it('returns false when transaction is against wrong contract address', async () => {
+      const groupContractAddress = 'CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBSC4';
+      const wrongContractAddress = 'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCSC4';
+      mockServer.getTransaction.mockResolvedValue({
+        status: 'SUCCESS',
+        functionName: 'contribute',
+        contractAddress: wrongContractAddress,
+      });
+
+      await expect(
+        service.verifyContributionForGroup('tx-123', groupContractAddress),
+      ).resolves.toBe(false);
+    });
+
+    it('returns false for non-success transactions', async () => {
+      mockServer.getTransaction.mockResolvedValue({
+        status: 'FAILED',
+      });
+
+      await expect(
+        service.verifyContributionForGroup(
+          'tx-123',
+          'CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBSC4',
+        ),
+      ).resolves.toBe(false);
+    });
+
+    it('returns false when transaction is not a contribute call', async () => {
+      mockServer.getTransaction.mockResolvedValue({
+        status: 'SUCCESS',
+        functionName: 'withdraw',
+        contractAddress:
+          'CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBSC4',
+      });
+
+      await expect(
+        service.verifyContributionForGroup(
+          'tx-123',
+          'CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBSC4',
+        ),
+      ).resolves.toBe(false);
+    });
+  });
+
   describe('verifySignature()', () => {
     it('returns true when Stellar signature is valid', () => {
       const keypair = (StellarSdk as any).Keypair.random();
