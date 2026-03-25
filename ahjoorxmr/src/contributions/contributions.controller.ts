@@ -29,6 +29,7 @@ import { ContributionResponseDto } from './dto/contribution-response.dto';
 import { GetContributionsQueryDto } from './dto/get-contributions-query.dto';
 import { ApiKeyGuard } from './guards/api-key.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { WalletThrottlerGuard } from '../throttler/guards/wallet-throttler.guard';
 import { AuditLog } from '../audit/decorators/audit-log.decorator';
 import { ErrorResponseDto } from '../common/dto/error-response.dto';
 
@@ -38,7 +39,6 @@ import { ErrorResponseDto } from '../common/dto/error-response.dto';
  */
 @ApiTags('Contributions')
 @Controller()
-@Version('1')
 export class ContributionsController {
   constructor(private readonly contributionsService: ContributionsService) {}
 
@@ -54,9 +54,10 @@ export class ContributionsController {
    * @throws ConflictException if transaction hash already exists
    */
   @Post('internal/contributions')
-  @UseGuards(ApiKeyGuard)
+  @UseGuards(ApiKeyGuard, JwtAuthGuard, WalletThrottlerGuard)
   @ApiSecurity('api_key')
-  @Throttle({ default: { limit: 10, ttl: 60000 } }) // 10 requests per minute
+  @ApiSecurity('JWT-auth')
+  @Throttle({ default: { limit: 5, ttl: 60000 } }) // 5 requests per minute per wallet
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Create contribution record (internal)',

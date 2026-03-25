@@ -26,8 +26,8 @@ import {
   ApiParam,
   ApiQuery,
   ApiBody,
-  ApiDeprecatedResponse,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { GroupsService } from './groups.service';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
@@ -36,6 +36,7 @@ import {
   PaginatedGroupsResponseDto,
 } from './dto/group-response.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { WalletThrottlerGuard } from '../throttler/guards/wallet-throttler.guard';
 import { Group } from './entities/group.entity';
 import { Membership } from '../memberships/entities/membership.entity';
 import { MembershipResponseDto } from '../memberships/dto/membership-response.dto';
@@ -56,7 +57,6 @@ import { ErrorResponseDto } from '../common/dto/error-response.dto';
  */
 @ApiTags('Groups')
 @Controller('groups')
-@Version('1')
 @SetMetadata('deprecated', true)
 export class GroupsController {
   constructor(private readonly groupsService: GroupsService) {}
@@ -356,7 +356,8 @@ export class GroupsController {
    * @throws BadRequestException if the group is not PENDING or doesn't have enough members
    */
   @Post(':id/activate')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, WalletThrottlerGuard)
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
   @ApiBearerAuth('JWT-auth')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
