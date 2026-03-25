@@ -198,3 +198,55 @@ export class QueueService {
     ];
   }
 }
+
+  // ---------------------------------------------------------------------------
+  // Dead Letter Queue Management
+  // ---------------------------------------------------------------------------
+  async getDeadLetterJobs() {
+    const jobs = await this.deadLetterQueue.getJobs(['completed', 'failed', 'waiting']);
+    
+    return jobs.map(job => ({
+      id: job.id,
+      name: job.name,
+      data: job.data,
+      failedReason: job.failedReason,
+      attemptsMade: job.attemptsMade,
+      timestamp: job.timestamp,
+    }));
+  }
+
+  async retryDeadLetterJob(jobId: string) {
+    const job = await this.deadLetterQueue.getJob(jobId);
+    
+    if (!job) {
+      throw new Error(`Job ${jobId} not found in dead letter queue`);
+    }
+
+    const { originalQueue, originalJobName, originalJobData } = job.data;
+    
+    // Get the original queue
+    let targetQueue: Queue;
+    switch (originalQueue) {
+      case QUEUE_NAMES.EMAIL:
+        targetQueue = this.emailQueue;
+        break;
+      case QUEUE_NAMES.EVENT_SYNC:
+        targetQueue = this.eventSyncQueue;
+        break;
+      case QUEUE_NAMES.GROUP_SYNC:
+        targetQueue = this.groupSyncQueue;
+        break;
+      default:
+        throw new Error(`Unknown queue: ${originalQueue}`);
+    }
+
+    // Re-add the job to the original queue
+    await targetQueue.add(originalJobName, originalJobData, defaultJobOptions());
+    
+    // Remove from dead letter queue
+    await job.remove();
+
+    this.logger.log(`Retried job ${jobId} from dead letter queue to ${originalQueue}`);
+    
+    return { success: true, message: `Job ${jobId} retried successfully` };
+  }
