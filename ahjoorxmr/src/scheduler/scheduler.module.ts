@@ -12,11 +12,15 @@ import { Contribution } from '../contributions/entities/contribution.entity';
 import { Group } from '../groups/entities/group.entity';
 import { Membership } from '../memberships/entities/membership.entity';
 import { NotificationsService } from '../notification/notifications.service';
+import { GroupsModule } from '../groups/groups.module';
+import { NotificationsModule } from '../notification/notifications.module';
 
 @Module({
   imports: [
     ScheduleModule.forRoot(),
     TypeOrmModule.forFeature([AuditLog, Contribution, Group, Membership]),
+    GroupsModule,
+    NotificationsModule,
   ],
   providers: [
     SchedulerService,
@@ -25,7 +29,6 @@ import { NotificationsService } from '../notification/notifications.service';
     GroupStatusService,
     StaleGroupDetectionService,
     DistributedLockService,
-    NotificationsService,
   ],
   exports: [AuditLogService],
 })

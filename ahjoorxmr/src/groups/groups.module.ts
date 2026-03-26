@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { GroupsController } from './groups.controller';
 import { GroupsV2Controller } from './groups-v2.controller';
 import { GroupsService } from './groups.service';
+import { RoundService } from './round.service';
 import { Group } from './entities/group.entity';
 import { Membership } from '../memberships/entities/membership.entity';
 import { WinstonLogger } from '../common/logger/winston.logger';
@@ -22,7 +23,7 @@ import { StellarModule } from '../stellar/stellar.module';
     StellarModule,
   ],
   controllers: [GroupsController, GroupsV2Controller],
-  providers: [GroupsService, WinstonLogger, JwtAuthGuard],
-  exports: [GroupsService],
+  providers: [GroupsService, RoundService, WinstonLogger, JwtAuthGuard],
+  exports: [GroupsService, RoundService],
 })
 export class GroupsModule {}

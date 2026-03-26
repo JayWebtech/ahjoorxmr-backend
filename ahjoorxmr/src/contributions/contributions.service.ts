@@ -13,6 +13,7 @@ import { CreateContributionDto } from './dto/create-contribution.dto';
 import { StellarService } from '../stellar/stellar.service';
 import { ConfigService } from '@nestjs/config';
 import { GetContributionsQueryDto } from './dto/get-contributions-query.dto';
+import { RoundService } from '../groups/round.service';
 
 /**
  * Service responsible for managing contribution operations in ROSCA groups.
@@ -28,6 +29,7 @@ export class ContributionsService {
     private readonly logger: WinstonLogger,
     private readonly stellarService: StellarService,
     private readonly configService: ConfigService,
+    private readonly roundService: RoundService,
   ) {}
 
   /**
@@ -178,6 +180,9 @@ export class ContributionsService {
         `Contribution created with id ${savedContribution.id} for user ${userId} in group ${groupId}`,
         'ContributionsService',
       );
+
+      // Attempt automatic round advancement — no-ops if not all members have paid
+      await this.roundService.tryAdvanceRound(groupId);
 
       return savedContribution;
     } catch (error) {
