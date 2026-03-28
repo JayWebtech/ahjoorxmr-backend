@@ -6,6 +6,7 @@ import {
   BadGatewayException,
   ConflictException,
 } from '@nestjs/common';
+import { OnApplicationBootstrap } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -21,7 +22,7 @@ import { PayoutTransactionStatus } from './entities/payout-transaction-status.en
 import { QueueService } from '../bullmq/queue.service';
 
 @Injectable()
-export class PayoutService {
+export class PayoutService implements OnApplicationBootstrap {
   private readonly logger = new Logger(PayoutService.name);
 
   constructor(
@@ -204,6 +205,13 @@ export class PayoutService {
 
   private buildPayoutOrderId(groupId: string, round: number): string {
     return `${groupId}:${round}`;
+  }
+
+  async onApplicationBootstrap() {
+    this.logger.log(
+      'Startup reconciliation sweep: enqueuing jobs for PENDING_SUBMISSION rows with non-null txHash',
+    );
+    await this.pollUnconfirmedPayouts();
   }
 
   @Cron(CronExpression.EVERY_5_MINUTES)

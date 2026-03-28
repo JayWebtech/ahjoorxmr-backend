@@ -105,13 +105,32 @@ describe('PayoutService', () => {
         status: PayoutTransactionStatus.PENDING_SUBMISSION,
         txHash: null,
       })
+      // onBeforeSubmit callback save — persists txHash before sendTransaction
+      .mockResolvedValueOnce({
+        id: 'ptx-1',
+        payoutOrderId: `${GROUP_ID}:1`,
+        status: PayoutTransactionStatus.PENDING_SUBMISSION,
+        txHash,
+      })
       .mockResolvedValueOnce({
         id: 'ptx-1',
         payoutOrderId: `${GROUP_ID}:1`,
         status: PayoutTransactionStatus.SUBMITTED,
         txHash,
       });
-    stellarService.disbursePayout.mockResolvedValue(txHash);
+    stellarService.disbursePayout.mockImplementation(
+      async (
+        _contract: string,
+        _recipient: string,
+        _amount: string,
+        onBeforeSubmit?: (hash: string) => Promise<void>,
+      ) => {
+        if (onBeforeSubmit) {
+          await onBeforeSubmit(txHash);
+        }
+        return txHash;
+      },
+    );
     membershipRepo.save.mockResolvedValue({
       ...recipient,
       hasReceivedPayout: true,
@@ -125,6 +144,7 @@ describe('PayoutService', () => {
       CONTRACT_ADDRESS,
       WALLET_ADDRESS,
       CONTRIBUTION_AMOUNT,
+      expect.any(Function),
     );
     expect(queueService.addPayoutReconciliation).toHaveBeenCalledWith({
       payoutTransactionId: 'ptx-1',
