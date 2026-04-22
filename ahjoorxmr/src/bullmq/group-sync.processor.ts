@@ -1,5 +1,5 @@
 import { Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
-import { Logger } from '@nestjs/common';
+import { Logger, OnModuleDestroy } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { QUEUE_NAMES, JOB_NAMES, BACKOFF_DELAYS } from '../queue.constants';
 import {
@@ -11,11 +11,27 @@ import { DeadLetterService } from '../dead-letter.service';
 @Processor(QUEUE_NAMES.GROUP_SYNC, {
   concurrency: 2,
 })
-export class GroupSyncProcessor extends WorkerHost {
+export class GroupSyncProcessor extends WorkerHost implements OnModuleDestroy {
   private readonly logger = new Logger(GroupSyncProcessor.name);
 
   constructor(private readonly deadLetterService: DeadLetterService) {
     super();
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    this.logger.log(
+      `[${new Date().toISOString()}] Closing GroupSyncProcessor worker, draining active jobs...`,
+    );
+    try {
+      await this.worker?.close();
+      this.logger.log(
+        `[${new Date().toISOString()}] GroupSyncProcessor worker closed successfully`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `[${new Date().toISOString()}] Error closing GroupSyncProcessor worker: ${error.message}`,
+      );
+    }
   }
 
   async process(job: Job): Promise<unknown> {

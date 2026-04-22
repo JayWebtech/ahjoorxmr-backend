@@ -14,6 +14,9 @@ async function bootstrap() {
     logger: new WinstonLogger(),
   });
 
+  // Enable graceful shutdown hooks for SIGTERM and SIGINT
+  app.enableShutdownHooks();
+
   // Get Reflector for interceptors
   const reflector = app.get(Reflector);
 
@@ -65,11 +68,11 @@ async function bootstrap() {
       .setTitle('Ahjoor Backend API v1 (Deprecated)')
       .setDescription(
         'Version 1 of the Ahjoor Backend API (DEPRECATED). ' +
-        'This API provides endpoints for user authentication, ROSCA group management, ' +
-        'membership tracking, contribution processing, and more. ' +
-        'Please migrate to v2 for new integrations. ' +
-        'Breaking changes in v2: GET /api/v2/groups/:id no longer includes members; ' +
-        'use GET /api/v2/groups/:id/members instead.',
+          'This API provides endpoints for user authentication, ROSCA group management, ' +
+          'membership tracking, contribution processing, and more. ' +
+          'Please migrate to v2 for new integrations. ' +
+          'Breaking changes in v2: GET /api/v2/groups/:id no longer includes members; ' +
+          'use GET /api/v2/groups/:id/members instead.',
       )
       .setVersion('1.0.0')
       .setContact('Ahjoor Team', 'https://ahjoor.com', 'support@ahjoor.com')
@@ -122,10 +125,10 @@ async function bootstrap() {
       .setTitle('Ahjoor Backend API v2')
       .setDescription(
         'Version 2 of the Ahjoor Backend API (Current). ' +
-        'This API provides endpoints for user authentication, ROSCA group management, ' +
-        'membership tracking, contribution processing, and more. ' +
-        'Breaking changes from v1: GET /api/v2/groups/:id no longer includes members; ' +
-        'use GET /api/v2/groups/:id/members for member data.',
+          'This API provides endpoints for user authentication, ROSCA group management, ' +
+          'membership tracking, contribution processing, and more. ' +
+          'Breaking changes from v1: GET /api/v2/groups/:id no longer includes members; ' +
+          'use GET /api/v2/groups/:id/members for member data.',
       )
       .setVersion('2.0.0')
       .setContact('Ahjoor Team', 'https://ahjoor.com', 'support@ahjoor.com')
@@ -187,9 +190,9 @@ async function bootstrap() {
 
     console.log(
       `Swagger documentation available at:\n` +
-      `  - v1 (deprecated): http://localhost:${process.env.PORT ?? 3000}/api/docs/v1\n` +
-      `  - v2 (current): http://localhost:${process.env.PORT ?? 3000}/api/docs/v2\n` +
-      `  - default: http://localhost:${process.env.PORT ?? 3000}/api/docs`,
+        `  - v1 (deprecated): http://localhost:${process.env.PORT ?? 3000}/api/docs/v1\n` +
+        `  - v2 (current): http://localhost:${process.env.PORT ?? 3000}/api/docs/v2\n` +
+        `  - default: http://localhost:${process.env.PORT ?? 3000}/api/docs`,
     );
   }
 
@@ -197,5 +200,43 @@ async function bootstrap() {
   await app.listen(port);
 
   console.log(`Application is running on: http://localhost:${port}`);
+
+  // Setup graceful shutdown with timeout
+  const shutdownTimeoutMs = parseInt(
+    process.env.SHUTDOWN_TIMEOUT_MS || '15000',
+    10,
+  );
+
+  const gracefulShutdown = async (signal: string) => {
+    console.log(
+      `\n[${new Date().toISOString()}] Received ${signal}, starting graceful shutdown...`,
+    );
+
+    const shutdownTimer = setTimeout(() => {
+      console.error(
+        `[${new Date().toISOString()}] Graceful shutdown timeout (${shutdownTimeoutMs}ms) exceeded, forcing exit`,
+      );
+      process.exit(1);
+    }, shutdownTimeoutMs);
+
+    try {
+      await app.close();
+      clearTimeout(shutdownTimer);
+      console.log(
+        `[${new Date().toISOString()}] Application closed successfully`,
+      );
+      process.exit(0);
+    } catch (error) {
+      clearTimeout(shutdownTimer);
+      console.error(
+        `[${new Date().toISOString()}] Error during shutdown:`,
+        error,
+      );
+      process.exit(1);
+    }
+  };
+
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 }
 void bootstrap();

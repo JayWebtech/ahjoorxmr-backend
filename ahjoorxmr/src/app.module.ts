@@ -1,7 +1,8 @@
-import { Module } from '@nestjs/common';
+import { Module, OnApplicationShutdown, Logger, Inject } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { APP_INTERCEPTOR } from '@nestjs/core';
+import { DataSource } from 'typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { RedisModule } from './common/redis/redis.module';
@@ -78,4 +79,63 @@ import { SeedModule } from './database/seeds/seed.module';
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements OnApplicationShutdown {
+  private readonly logger = new Logger(AppModule.name);
+
+  constructor(
+    @Inject(DataSource) private readonly dataSource: DataSource,
+    private readonly configService: ConfigService,
+  ) {}
+
+  /**
+   * Graceful shutdown handler for SIGTERM and SIGINT signals.
+   * Ensures in-flight requests complete and resources are properly released.
+   */
+  async onApplicationShutdown(signal?: string): Promise<void> {
+    const startTime = Date.now();
+    this.logger.log(
+      `[${new Date().toISOString()}] Received shutdown signal: ${signal || 'UNKNOWN'}`,
+    );
+
+    try {
+      // Step 1: Stop accepting new HTTP requests (handled by NestJS automatically)
+      this.logger.log(
+        `[${new Date().toISOString()}] Step 1: Stopped accepting new HTTP requests`,
+      );
+
+      // Step 2: Wait for in-flight HTTP requests to complete
+      // NestJS handles this automatically when app.close() is called
+      this.logger.log(
+        `[${new Date().toISOString()}] Step 2: Waiting for in-flight HTTP requests to complete`,
+      );
+
+      // Step 3: Close BullMQ workers (drain active jobs)
+      // BullMQ workers are closed automatically via their OnModuleDestroy hooks
+      this.logger.log(
+        `[${new Date().toISOString()}] Step 3: Draining BullMQ workers (active jobs will complete)`,
+      );
+
+      // Step 4: Close database connections
+      if (this.dataSource.isInitialized) {
+        this.logger.log(
+          `[${new Date().toISOString()}] Step 4: Closing database connections`,
+        );
+        await this.dataSource.destroy();
+        this.logger.log(
+          `[${new Date().toISOString()}] Database connections closed successfully`,
+        );
+      }
+
+      const duration = Date.now() - startTime;
+      this.logger.log(
+        `[${new Date().toISOString()}] Graceful shutdown completed in ${duration}ms`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `[${new Date().toISOString()}] Error during graceful shutdown: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
+  }
+}
