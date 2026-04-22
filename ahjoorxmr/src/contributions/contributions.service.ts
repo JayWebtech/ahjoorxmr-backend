@@ -90,6 +90,19 @@ export class ContributionsService {
         );
       }
 
+      // Validate contribution window using timezone-aware comparison
+      const now = new Date();
+      if (group.startDate && now < group.startDate) {
+        throw new BadRequestException(
+          `Contribution window has not opened yet (opens at ${group.startDate.toISOString()} in timezone ${group.timezone ?? 'UTC'})`,
+        );
+      }
+      if (group.endDate && now > group.endDate) {
+        throw new BadRequestException(
+          `Contribution window has closed (closed at ${group.endDate.toISOString()} in timezone ${group.timezone ?? 'UTC'})`,
+        );
+      }
+
       // Validate round number matches current round
       if (roundNumber !== group.currentRound) {
         this.logger.warn(
