@@ -1,17 +1,31 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { createHmac } from 'crypto';
+import { createHmac, randomBytes } from 'crypto';
 import axios from 'axios';
 import { Webhook } from './entities/webhook.entity';
+import { WebhookDelivery, WebhookDeliveryStatus } from './entities/webhook-delivery.entity';
 import {
   WebhookPayload,
   WebhookDeliveryJobData,
   ContributionVerifiedPayload,
 } from './interfaces/webhook.interface';
 import { Contribution } from '../contributions/entities/contribution.entity';
+
+export enum WebhookEventType {
+  ROUND_COMPLETED = 'ROUND_COMPLETED',
+  PAYOUT_SENT = 'PAYOUT_SENT',
+  CONTRIBUTION_CONFIRMED = 'CONTRIBUTION_CONFIRMED',
+  KYC_APPROVED = 'KYC_APPROVED',
+  MEMBER_JOINED = 'MEMBER_JOINED',
+}
 
 @Injectable()
 export class WebhookService {
@@ -20,57 +34,45 @@ export class WebhookService {
   constructor(
     @InjectRepository(Webhook)
     private readonly webhookRepository: Repository<Webhook>,
+    @InjectRepository(WebhookDelivery)
+    private readonly deliveryRepository: Repository<WebhookDelivery>,
     @InjectQueue('webhook-delivery-queue')
     private readonly webhookQueue: Queue,
   ) {}
 
-  /**
-   * Generate HMAC-SHA256 signature for webhook payload
-   */
-  private generateSignature(payload: string, secret: string): string {
-    const hmac = createHmac('sha256', secret);
-    hmac.update(payload);
-    return `sha256=${hmac.digest('hex')}`;
+  /** HMAC-SHA256 signature used in X-Ahjoor-Signature header */
+  generateSignature(payload: string, secret: string): string {
+    return `sha256=${createHmac('sha256', secret).update(payload).digest('hex')}`;
   }
 
-  /**
-   * Send webhook notification for contribution verified event
-   */
   async notifyContributionVerified(contribution: Contribution): Promise<void> {
+    await this.dispatchEvent(WebhookEventType.CONTRIBUTION_CONFIRMED, {
+      contributionId: contribution.id,
+      groupId: contribution.groupId,
+      userId: contribution.userId,
+      walletAddress: contribution.walletAddress,
+      amount: contribution.amount,
+      roundNumber: contribution.roundNumber,
+      transactionHash: contribution.transactionHash,
+      timestamp: contribution.timestamp,
+    } as ContributionVerifiedPayload);
+  }
+
+  async dispatchEvent(event: WebhookEventType, data: unknown): Promise<void> {
     const webhooks = await this.webhookRepository.find({
-      where: {
-        isActive: true,
-      },
+      where: { isActive: true },
     });
 
-    const eventType = 'contribution.verified';
-    const relevantWebhooks = webhooks.filter((webhook) =>
-      webhook.eventTypes.includes(eventType),
-    );
-
-    if (relevantWebhooks.length === 0) {
-      this.logger.debug(
-        `No active webhooks found for event type: ${eventType}`,
-      );
-      return;
-    }
+    const relevant = webhooks.filter((w) => w.eventTypes.includes(event));
+    if (!relevant.length) return;
 
     const payload: WebhookPayload = {
-      event: eventType,
+      event,
       timestamp: new Date().toISOString(),
-      data: {
-        contributionId: contribution.id,
-        groupId: contribution.groupId,
-        userId: contribution.userId,
-        walletAddress: contribution.walletAddress,
-        amount: contribution.amount,
-        roundNumber: contribution.roundNumber,
-        transactionHash: contribution.transactionHash,
-        timestamp: contribution.timestamp,
-      } as ContributionVerifiedPayload,
+      data,
     };
 
-    for (const webhook of relevantWebhooks) {
+    for (const webhook of relevant) {
       const jobData: WebhookDeliveryJobData = {
         webhookId: webhook.id,
         url: webhook.url,
@@ -80,146 +82,137 @@ export class WebhookService {
       };
 
       await this.webhookQueue.add('deliver-webhook', jobData, {
-        attempts: 3,
-        backoff: {
-          type: 'exponential',
-          delay: 5000,
-        },
+        attempts: 5,
+        backoff: { type: 'exponential', delay: 5000 },
         removeOnComplete: { count: 1000, age: 24 * 60 * 60 },
         removeOnFail: false,
       });
-
-      this.logger.log(
-        `Queued webhook delivery for webhook ${webhook.id} to ${webhook.url}`,
-      );
     }
   }
 
-  /**
-   * Deliver webhook with HMAC signature
-   */
   async deliverWebhook(
     url: string,
     secret: string,
     payload: WebhookPayload,
-  ): Promise<{ statusCode: number; responseBody: any; deliveryTime: number }> {
-    const startTime = Date.now();
+    webhookId: string,
+    attemptNumber = 1,
+  ): Promise<{ statusCode: number; responseBody: string; deliveryTime: number }> {
+    const start = Date.now();
     const payloadString = JSON.stringify(payload);
     const signature = this.generateSignature(payloadString, secret);
+
+    let delivery = this.deliveryRepository.create({
+      webhookId,
+      status: WebhookDeliveryStatus.PENDING,
+      payload: payloadString,
+      attemptNumber,
+      responseCode: null,
+      responseBody: null,
+    });
+    delivery = await this.deliveryRepository.save(delivery);
 
     try {
       const response = await axios.post(url, payload, {
         headers: {
           'Content-Type': 'application/json',
-          'X-Webhook-Signature': signature,
+          'X-Ahjoor-Signature': signature,
           'User-Agent': 'Ahjoorxmr-Webhook/1.0',
         },
-        timeout: 10000,
-        validateStatus: (status) => status < 600,
+        timeout: 10_000,
+        validateStatus: () => true,
       });
 
-      const deliveryTime = Date.now() - startTime;
+      const deliveryTime = Date.now() - start;
+      const responseBody = JSON.stringify(response.data).slice(0, 1024);
 
-      this.logger.log(
-        `Webhook delivered to ${url} with status ${response.status} in ${deliveryTime}ms`,
-      );
+      delivery.status =
+        response.status < 300
+          ? WebhookDeliveryStatus.SUCCESS
+          : WebhookDeliveryStatus.FAILED;
+      delivery.responseCode = response.status;
+      delivery.responseBody = responseBody;
+      await this.deliveryRepository.save(delivery);
 
-      return {
-        statusCode: response.status,
-        responseBody: response.data,
-        deliveryTime,
-      };
+      if (response.status >= 500) {
+        throw new Error(`Endpoint returned ${response.status}`);
+      }
+
+      return { statusCode: response.status, responseBody, deliveryTime };
     } catch (error) {
-      const deliveryTime = Date.now() - startTime;
-      this.logger.error(
-        `Failed to deliver webhook to ${url}: ${error.message}`,
-      );
-
+      delivery.status = WebhookDeliveryStatus.FAILED;
+      delivery.responseBody = (error as Error).message.slice(0, 1024);
+      await this.deliveryRepository.save(delivery);
       throw error;
     }
   }
 
-  /**
-   * Test webhook endpoint with synthetic event
-   */
   async testWebhook(
     webhookId: string,
-  ): Promise<{ statusCode: number; responseBody: any; deliveryTime: number }> {
-    const webhook = await this.webhookRepository.findOne({
-      where: { id: webhookId },
-    });
-
-    if (!webhook) {
-      throw new Error('Webhook not found');
-    }
+    ownerId?: string,
+  ): Promise<{ statusCode: number; responseBody: string; deliveryTime: number }> {
+    const webhook = await this.webhookRepository.findOne({ where: { id: webhookId } });
+    if (!webhook) throw new NotFoundException('Webhook not found');
+    if (ownerId && webhook.userId !== ownerId) throw new ForbiddenException();
 
     const testPayload: WebhookPayload = {
-      event: 'contribution.verified',
+      event: 'TEST',
       timestamp: new Date().toISOString(),
-      data: {
-        contributionId: '00000000-0000-0000-0000-000000000000',
-        groupId: '00000000-0000-0000-0000-000000000000',
-        userId: webhook.userId,
-        walletAddress: 'GTEST...',
-        amount: '100',
-        roundNumber: 1,
-        transactionHash: 'test_transaction_hash',
-        timestamp: new Date(),
-      } as ContributionVerifiedPayload,
+      data: { message: 'This is a test event', webhookId },
     };
 
-    return this.deliverWebhook(webhook.url, webhook.secret, testPayload);
+    return this.deliverWebhook(webhook.url, webhook.secret, testPayload, webhookId);
   }
 
-  /**
-   * Create a new webhook
-   */
-  async createWebhook(
-    userId: string,
-    url: string,
-    eventTypes: string[],
-  ): Promise<Webhook> {
-    const secret = this.generateWebhookSecret();
-
-    const webhook = this.webhookRepository.create({
-      userId,
-      url,
-      secret,
-      eventTypes,
-      isActive: true,
+  async replayDelivery(deliveryId: string, ownerId?: string): Promise<void> {
+    const delivery = await this.deliveryRepository.findOne({
+      where: { id: deliveryId },
+      relations: ['webhook'],
     });
+    if (!delivery) throw new NotFoundException('Delivery not found');
+    if (ownerId && delivery.webhook.userId !== ownerId) throw new ForbiddenException();
 
+    const jobData: WebhookDeliveryJobData = {
+      webhookId: delivery.webhookId,
+      url: delivery.webhook.url,
+      secret: delivery.webhook.secret,
+      payload: JSON.parse(delivery.payload),
+      attempt: 1,
+    };
+
+    await this.webhookQueue.add('deliver-webhook', jobData, {
+      attempts: 5,
+      backoff: { type: 'exponential', delay: 5000 },
+    });
+  }
+
+  async getDeliveries(webhookId: string, ownerId?: string): Promise<WebhookDelivery[]> {
+    const webhook = await this.webhookRepository.findOne({ where: { id: webhookId } });
+    if (!webhook) throw new NotFoundException('Webhook not found');
+    if (ownerId && webhook.userId !== ownerId) throw new ForbiddenException();
+
+    return this.deliveryRepository.find({
+      where: { webhookId },
+      order: { attemptedAt: 'DESC' },
+      take: 50,
+    });
+  }
+
+  async createWebhook(userId: string, url: string, eventTypes: string[]): Promise<Webhook> {
+    const secret = randomBytes(32).toString('hex');
+    const webhook = this.webhookRepository.create({ userId, url, secret, eventTypes, isActive: true });
     return this.webhookRepository.save(webhook);
   }
 
-  /**
-   * Get all webhooks for a user
-   */
   async getUserWebhooks(userId: string): Promise<Webhook[]> {
-    return this.webhookRepository.find({
-      where: { userId },
-      order: { createdAt: 'DESC' },
-    });
+    return this.webhookRepository.find({ where: { userId }, order: { createdAt: 'DESC' } });
   }
 
-  /**
-   * Delete a webhook
-   */
+  async getAllWebhooks(): Promise<Webhook[]> {
+    return this.webhookRepository.find({ order: { createdAt: 'DESC' } });
+  }
+
   async deleteWebhook(webhookId: string, userId: string): Promise<void> {
-    const result = await this.webhookRepository.delete({
-      id: webhookId,
-      userId,
-    });
-
-    if (result.affected === 0) {
-      throw new Error('Webhook not found or unauthorized');
-    }
-  }
-
-  /**
-   * Generate a secure random secret for webhook signing
-   */
-  private generateWebhookSecret(): string {
-    return require('crypto').randomBytes(32).toString('hex');
+    const result = await this.webhookRepository.delete({ id: webhookId, userId });
+    if (result.affected === 0) throw new NotFoundException('Webhook not found or unauthorized');
   }
 }

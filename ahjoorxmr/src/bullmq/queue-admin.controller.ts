@@ -4,12 +4,14 @@ import {
   Post,
   Body,
   Param,
+  Query,
   UseGuards,
   HttpCode,
   HttpStatus,
   Request,
   ForbiddenException,
   NotFoundException,
+  UseInterceptors,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -26,6 +28,8 @@ import { AuditService } from '../audit/audit.service';
 import { JwtAuthGuard } from '../stellar-auth/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { PaginationDto, PaginatedResponseDto } from '../common/dto/pagination.dto';
+import { PaginationLinkHeaderInterceptor } from '../common/interceptors/pagination-link-header.interceptor';
 
 class BulkRetryDto implements BulkRetryFilter {
   @IsOptional()
@@ -69,11 +73,16 @@ export class QueueAdminController {
 
   @Get('dead-letter')
   @HttpCode(HttpStatus.OK)
+  @UseInterceptors(PaginationLinkHeaderInterceptor)
   @ApiOperation({ summary: 'Get dead letter queue jobs (admin only)' })
   @ApiResponse({ status: 200, description: 'Dead letter queue jobs retrieved successfully' })
   @ApiResponse({ status: 403, description: 'Forbidden - Admin role required' })
-  async getDeadLetterJobs() {
-    return this.queueService.getDeadLetterJobs();
+  async getDeadLetterJobs(@Query() pagination: PaginationDto) {
+    const { page = 1, limit = 20 } = pagination;
+    const all = await this.queueService.getDeadLetterJobs();
+    const start = (page - 1) * limit;
+    const data = all.slice(start, start + limit);
+    return PaginatedResponseDto.of(data, all.length, page, limit);
   }
 
   /**

@@ -5,7 +5,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, LessThan } from 'typeorm';
 import { MailerService } from '@nestjs-modules/mailer';
 import { Notification } from './notification.entity';
 import { NotificationType } from './notification-type.enum';
@@ -15,6 +15,7 @@ import {
   CreateNotificationDto,
 } from './notifications.dto';
 import { UseReadReplica } from '../common/decorators/read-replica.decorator';
+import { RedisService } from '../common/redis/redis.service';
 
 export interface PaginatedResult<T> {
   data: T[];
@@ -38,6 +39,7 @@ export class NotificationsService {
     @InjectRepository(Notification)
     private readonly notificationRepo: Repository<Notification>,
     private readonly mailerService: MailerService,
+    private readonly redisService: RedisService,
   ) {}
 
   /**
@@ -55,6 +57,12 @@ export class NotificationsService {
     });
 
     const saved = await this.notificationRepo.save(notification);
+
+    // Publish to Redis for SSE consumers
+    this.redisService
+      .getClient()
+      .publish(`notifications:${dto.userId}`, JSON.stringify(saved))
+      .catch((err) => this.logger.error(`Redis publish failed: ${err.message}`));
 
     if (dto.sendEmail && dto.emailTo) {
       setImmediate(() =>
@@ -122,13 +130,25 @@ export class NotificationsService {
   async findAll(
     userId: string,
     query: PaginateNotificationsDto,
+    cursor?: string,
   ): Promise<PaginatedResult<Notification>> {
     const { page = 1, limit = 20, type } = query;
-    const skip = (page - 1) * limit;
 
     const where: Record<string, any> = { userId };
     if (type) where.type = type;
 
+    // Cursor-based pagination: cursor is the createdAt ISO string of the last seen item
+    if (cursor) {
+      where.createdAt = LessThan(new Date(cursor));
+      const data = await this.notificationRepo.find({
+        where,
+        order: { createdAt: 'DESC' },
+        take: limit,
+      });
+      return { data, total: data.length, page: 1, limit, totalPages: 1 };
+    }
+
+    const skip = (page - 1) * limit;
     const [data, total] = await this.notificationRepo.findAndCount({
       where,
       order: { createdAt: 'DESC' },

@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards, Version, Res, HttpStatus, ForbiddenException, Request } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards, Version, Res, HttpStatus, ForbiddenException, Request, UseInterceptors } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -14,6 +14,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { ConfigService } from '@nestjs/config';
+import { PaginationLinkHeaderInterceptor } from '../common/interceptors/pagination-link-header.interceptor';
 
 @ApiTags('Audit')
 @Controller('admin/audit-logs')
@@ -28,6 +29,7 @@ export class AuditController {
 
   @Get()
   @Roles('admin')
+  @UseInterceptors(PaginationLinkHeaderInterceptor)
   @ApiOperation({ summary: 'Get audit logs with filtering and pagination' })
   @ApiResponse({
     status: 200,
@@ -37,7 +39,17 @@ export class AuditController {
   async getAuditLogs(
     @Query() query: AuditLogQueryDto,
   ): Promise<PaginatedAuditLogResponseDto> {
-    return this.auditService.findAll(query);
+    const result = await this.auditService.findAll(query);
+    // Reshape to { data, meta } for consistency
+    return {
+      data: result.data,
+      meta: {
+        page: result.page,
+        limit: result.limit,
+        total: result.total,
+        totalPages: result.totalPages,
+      },
+    } as any;
   }
 
   @Get('export')

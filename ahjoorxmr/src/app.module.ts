@@ -40,6 +40,7 @@ import { CommonModule } from './common/common.module';
 import { MailModule } from './mail/mail.module';
 import { MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
+import { ProxyHopMiddleware } from './common/middleware/proxy-hop.middleware';
 import { ReplicaModule } from './database/replica.module';
 import { DatabaseRoutingModule } from './database/database-routing.module';
 import { ReadReplicaInterceptor } from './common/interceptors/read-replica.interceptor';
@@ -47,6 +48,7 @@ import { ReadQueryRunner } from './database/read-query-runner';
 import { MetricsModule } from './metrics/metrics.module';
 import { MetricsInterceptor } from './metrics/metrics.interceptor';
 import { WebhookModule } from './webhooks/webhook.module';
+import { WebhookDelivery } from './webhooks/entities/webhook-delivery.entity';
 
 @Module({
   imports: [
@@ -80,6 +82,7 @@ import { WebhookModule } from './webhooks/webhook.module';
             PayoutTransaction,
             JobFailure,
             QueryAnalysis,
+            WebhookDelivery,
           ],
           synchronize: isDevelopment, // Auto-create tables only in development
           logging: isDevelopment, // Enable logging only in development
@@ -157,6 +160,6 @@ import { WebhookModule } from './webhooks/webhook.module';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(CorrelationIdMiddleware).forRoutes('*');
+    consumer.apply(CorrelationIdMiddleware, ProxyHopMiddleware).forRoutes('*');
   }
 }

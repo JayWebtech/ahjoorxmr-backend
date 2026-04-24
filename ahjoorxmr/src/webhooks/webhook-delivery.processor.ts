@@ -23,34 +23,18 @@ export class WebhookDeliveryProcessor extends WorkerHost {
     const { webhookId, url, secret, payload, attempt } = job.data;
 
     this.logger.log(
-      `Processing webhook delivery job ${job.id} for webhook ${webhookId} (attempt ${attempt}/3)`,
+      `Processing webhook delivery job ${job.id} for webhook ${webhookId} (attempt ${attempt}/5)`,
     );
 
-    try {
-      const result = await this.webhookService.deliverWebhook(
-        url,
-        secret,
-        payload,
-      );
+    const result = await this.webhookService.deliverWebhook(
+      url,
+      secret,
+      payload,
+      webhookId,
+      job.attemptsMade + 1,
+    );
 
-      // Check if response indicates failure (5xx errors should retry)
-      if (result.statusCode >= 500) {
-        throw new Error(
-          `Webhook endpoint returned ${result.statusCode} status code`,
-        );
-      }
-
-      this.logger.log(
-        `Webhook delivered successfully to ${url} with status ${result.statusCode}`,
-      );
-
-      return result;
-    } catch (error) {
-      this.logger.error(
-        `Failed to deliver webhook to ${url}: ${error.message}`,
-      );
-      throw error;
-    }
+    return result;
   }
 
   @OnWorkerEvent('completed')

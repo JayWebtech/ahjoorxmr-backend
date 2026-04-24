@@ -2,6 +2,7 @@ import { NestFactory, Reflector } from '@nestjs/core';
 import { ClassSerializerInterceptor, ValidationPipe, VersioningType } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -57,11 +58,50 @@ async function bootstrap() {
     new DeprecationInterceptor(reflector, configService),
   );
 
-  // Enable CORS
+  // CORS — use CORS_ALLOWED_ORIGINS (comma-separated) instead of single CORS_ORIGIN
+  const allowedOrigins = (configService.get<string>('CORS_ALLOWED_ORIGINS') ?? '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+  const allowCredentials = configService.get<string>('CORS_ALLOW_CREDENTIALS') === 'true';
+
   app.enableCors({
-    origin: process.env.CORS_ORIGIN || '*',
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-    credentials: true,
+    origin: allowedOrigins.length ? allowedOrigins : false,
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    credentials: allowCredentials,
+    allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'X-Correlation-ID'],
+  });
+
+  // Helmet — explicit OWASP-recommended security headers
+  const isProduction = process.env.NODE_ENV === 'production';
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'none'"],
+          scriptSrc: ["'self'"],
+          styleSrc: ["'self'"],
+          imgSrc: ["'self'"],
+          connectSrc: ["'self'"],
+          fontSrc: ["'self'"],
+          objectSrc: ["'none'"],
+          frameAncestors: ["'none'"],
+        },
+      },
+      referrerPolicy: { policy: 'strict-origin' },
+      noSniff: true, // X-Content-Type-Options: nosniff
+      frameguard: { action: 'deny' },
+      hsts: isProduction
+        ? { maxAge: 63072000, includeSubDomains: true, preload: true }
+        : false,
+      permittedCrossDomainPolicies: false,
+    }),
+  );
+
+  // Permissions-Policy header (not yet in Helmet 8)
+  app.use((_req: any, res: any, next: any) => {
+    res.setHeader('Permissions-Policy', 'geolocation=()');
+    next();
   });
 
   // Setup Swagger documentation

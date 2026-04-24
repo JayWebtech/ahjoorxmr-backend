@@ -3,14 +3,23 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { MailerModule } from '@nestjs-modules/mailer';
 import { HandlebarsAdapter } from '@nestjs-modules/mailer/dist/adapters/handlebars.adapter';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
 import * as path from 'path';
 import { Notification } from './notification.entity';
 import { NotificationsService } from './notifications.service';
 import { NotificationsController } from './notifications.controller';
+import { SseAdminController } from './sse-admin.controller';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Notification]),
+    JwtModule.registerAsync({
+      imports: [ConfigModule],
+      useFactory: (config: ConfigService) => ({
+        secret: config.get<string>('JWT_SECRET'),
+      }),
+      inject: [ConfigService],
+    }),
     MailerModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (config: ConfigService) => ({
@@ -37,8 +46,8 @@ import { NotificationsController } from './notifications.controller';
       inject: [ConfigService],
     }),
   ],
-  controllers: [NotificationsController],
-  providers: [NotificationsService],
+  controllers: [NotificationsController, SseAdminController],
+  providers: [NotificationsService, NotificationsController],
   exports: [NotificationsService],
 })
 export class NotificationsModule {}

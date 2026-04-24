@@ -5,9 +5,9 @@ import {
   Query,
   ParseUUIDPipe,
   DefaultValuePipe,
-  ParseIntPipe,
   ParseBoolPipe,
   Version,
+  UseInterceptors,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -19,12 +19,13 @@ import {
 import { GroupsService } from './groups.service';
 import {
   GroupResponseDtoV2,
-  PaginatedGroupsResponseDtoV2,
 } from './dto/group-response-v2.dto';
 import { Group } from './entities/group.entity';
 import { Membership } from '../memberships/entities/membership.entity';
 import { MembershipResponseDto } from '../memberships/dto/membership-response.dto';
 import { ErrorResponseDto } from '../common/dto/error-response.dto';
+import { PaginationDto, PaginatedResponseDto } from '../common/dto/pagination.dto';
+import { PaginationLinkHeaderInterceptor } from '../common/interceptors/pagination-link-header.interceptor';
 
 /**
  * Controller for managing ROSCA groups (API v2).
@@ -49,54 +50,26 @@ export class GroupsV2Controller {
    * @returns Paginated list of groups
    */
   @Get()
+  @UseInterceptors(PaginationLinkHeaderInterceptor)
   @ApiOperation({
     summary: 'Get all ROSCA groups with pagination',
-    description:
-      'Returns a paginated list of all ROSCA groups (v2: without members)',
+    description: 'Returns a paginated list of all ROSCA groups (v2: without members)',
   })
-  @ApiQuery({
-    name: 'page',
-    required: false,
-    type: Number,
-    description: 'Page number',
-    example: 1,
-  })
-  @ApiQuery({
-    name: 'limit',
-    required: false,
-    type: Number,
-    description: 'Items per page',
-    example: 10,
-  })
-  @ApiQuery({
-    name: 'includeArchived',
-    required: false,
-    type: Boolean,
-    description: 'Include soft-deleted groups',
-    example: false,
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Successfully retrieved groups',
-    type: PaginatedGroupsResponseDtoV2,
-  })
+  @ApiQuery({ name: 'includeArchived', required: false, type: Boolean, example: false })
+  @ApiResponse({ status: 200, description: 'Successfully retrieved groups' })
   async findAll(
-    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
-    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+    @Query() pagination: PaginationDto,
     @Query('includeArchived', new DefaultValuePipe(false), ParseBoolPipe)
     includeArchived: boolean,
-  ): Promise<PaginatedGroupsResponseDtoV2> {
-    const result = await this.groupsService.findAll(
+  ): Promise<PaginatedResponseDto<GroupResponseDtoV2>> {
+    const { page = 1, limit = 20 } = pagination;
+    const result = await this.groupsService.findAll(page, limit, includeArchived);
+    return PaginatedResponseDto.of(
+      result.data.map((g) => this.toGroupResponseV2(g)),
+      result.total,
       page,
       limit,
-      includeArchived,
     );
-    return {
-      data: result.data.map((g) => this.toGroupResponseV2(g)),
-      total: result.total,
-      page: result.page,
-      limit: result.limit,
-    };
   }
 
   /**
@@ -140,31 +113,21 @@ export class GroupsV2Controller {
    * @throws NotFoundException if the group doesn't exist
    */
   @Get(':id/members')
-  @ApiOperation({
-    summary: 'Get group members',
-    description: 'Returns the list of members for a specific group',
-  })
+  @UseInterceptors(PaginationLinkHeaderInterceptor)
+  @ApiOperation({ summary: 'Get group members (paginated)' })
   @ApiParam({ name: 'id', description: 'Group UUID', format: 'uuid' })
-  @ApiResponse({
-    status: 200,
-    description: 'Successfully retrieved group members',
-    type: [MembershipResponseDto],
-  })
-  @ApiResponse({
-    status: 404,
-    description: 'Group not found',
-    type: ErrorResponseDto,
-  })
+  @ApiResponse({ status: 200, description: 'Successfully retrieved group members' })
+  @ApiResponse({ status: 404, description: 'Group not found', type: ErrorResponseDto })
   async getGroupMembers(
     @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<MembershipResponseDto[]> {
+    @Query() pagination: PaginationDto,
+  ): Promise<PaginatedResponseDto<MembershipResponseDto>> {
+    const { page = 1, limit = 20 } = pagination;
     const group = await this.groupsService.findOne(id);
-    if (!group.memberships) {
-      return [];
-    }
-    return group.memberships.map((m: Membership) =>
-      this.toMembershipResponse(m),
-    );
+    const all = (group.memberships ?? []).map((m: Membership) => this.toMembershipResponse(m));
+    const start = (page - 1) * limit;
+    const data = all.slice(start, start + limit);
+    return PaginatedResponseDto.of(data, all.length, page, limit);
   }
 
   /**
