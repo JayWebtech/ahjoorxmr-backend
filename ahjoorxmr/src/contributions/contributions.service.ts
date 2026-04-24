@@ -14,6 +14,7 @@ import { StellarService } from '../stellar/stellar.service';
 import { ConfigService } from '@nestjs/config';
 import { GetContributionsQueryDto } from './dto/get-contributions-query.dto';
 import { RoundService } from '../groups/round.service';
+import { UseReadReplica } from '../common/decorators/read-replica.decorator';
 import { WebhookService } from '../webhooks/webhook.service';
 
 /**
@@ -282,6 +283,7 @@ export class ContributionsService {
    * @param query - The pagination and filter query parameters
    * @returns Paginated envelope containing contribution entities
    */
+  @UseReadReplica()
   async getGroupContributions(
     groupId: string,
     query: GetContributionsQueryDto,

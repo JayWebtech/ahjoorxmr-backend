@@ -40,6 +40,10 @@ import { CommonModule } from './common/common.module';
 import { MailModule } from './mail/mail.module';
 import { MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
+import { ReplicaModule } from './database/replica.module';
+import { DatabaseRoutingModule } from './database/database-routing.module';
+import { ReadReplicaInterceptor } from './common/interceptors/read-replica.interceptor';
+import { ReadQueryRunner } from './database/read-query-runner';
 import { MetricsModule } from './metrics/metrics.module';
 import { MetricsInterceptor } from './metrics/metrics.interceptor';
 import { WebhookModule } from './webhooks/webhook.module';
@@ -52,8 +56,9 @@ import { WebhookModule } from './webhooks/webhook.module';
       envFilePath: '.env',
     }),
 
-    // TypeORM configuration with PostgreSQL
+    // TypeORM configuration with PostgreSQL (Primary)
     TypeOrmModule.forRootAsync({
+      name: 'primary',
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => {
         const isDevelopment =
@@ -93,6 +98,10 @@ import { WebhookModule } from './webhooks/webhook.module';
       },
       inject: [ConfigService],
     }),
+
+    // Replica and Routing Modules
+    ReplicaModule,
+    DatabaseRoutingModule,
 
     // RedisModule for caching and session management
     RedisModule,
@@ -139,6 +148,9 @@ import { WebhookModule } from './webhooks/webhook.module';
     },
     {
       provide: APP_INTERCEPTOR,
+      useClass: ReadReplicaInterceptor,
+    },
+    ReadQueryRunner,
       useClass: MetricsInterceptor,
     },
   ],
