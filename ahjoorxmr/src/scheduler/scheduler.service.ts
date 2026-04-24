@@ -10,6 +10,7 @@ import { GroupStatusService } from './services/group-status.service';
 import { StaleGroupDetectionService } from './services/stale-group-detection.service';
 import { RoundAdvanceService } from './services/round-advance.service';
 import { RefreshToken } from '../auth/entities/refresh-token.entity';
+import { GroupInviteService } from '../groups/invites/group-invite.service';
 
 @Injectable()
 export class SchedulerService {
@@ -25,6 +26,7 @@ export class SchedulerService {
     private readonly staleGroupDetectionService: StaleGroupDetectionService,
     private readonly roundAdvanceService: RoundAdvanceService,
     private readonly configService: ConfigService,
+    private readonly groupInviteService: GroupInviteService,
     @InjectRepository(RefreshToken)
     private readonly refreshTokenRepository: Repository<RefreshToken>,
   ) {}
@@ -245,6 +247,25 @@ export class SchedulerService {
       this.logger.log(`Task ${taskName} completed. Deleted ${result.deletedCount} expired refresh tokens.`);
     } else {
       this.logger.warn(`Task ${taskName} was skipped (lock not acquired)`);
+    }
+  }
+
+  /**
+   * Hourly task: Expire stale group invites
+   */
+  @Cron(CronExpression.EVERY_HOUR, { name: 'expire-group-invites' })
+  async handleExpireGroupInvites(): Promise<void> {
+    const taskName = 'expire-group-invites';
+    const result = await this.lockService.withLock(
+      taskName,
+      async () => {
+        const count = await this.groupInviteService.expireStaleInvites();
+        return { count };
+      },
+      300,
+    );
+    if (result) {
+      this.logger.log(`Task ${taskName} completed. Expired ${result.count} invites.`);
     }
   }
 

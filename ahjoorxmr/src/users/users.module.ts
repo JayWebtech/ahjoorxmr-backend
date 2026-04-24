@@ -6,9 +6,10 @@ import { UserRepository } from './repositories/user.repository';
 import { UsersService } from './users.service';
 import { AdminUsersController } from './admin-users.controller';
 import { GdprModule } from './gdpr.module';
+import { ApiKeysModule } from '../api-keys/api-keys.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User]), GdprModule],
+  imports: [TypeOrmModule.forFeature([User]), GdprModule, ApiKeysModule],
   controllers: [UsersController, AdminUsersController],
   providers: [UserRepository, UsersService],
   exports: [UserRepository, UsersService, TypeOrmModule],

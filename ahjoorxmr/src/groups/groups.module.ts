@@ -13,6 +13,11 @@ import { NotificationsModule } from '../notification/notifications.module';
 import { StellarModule } from '../stellar/stellar.module';
 import { PayoutTransaction } from './entities/payout-transaction.entity';
 import { QueueModule } from '../bullmq/queue.module';
+import { GroupInvite } from './entities/group-invite.entity';
+import { GroupInviteService } from './invites/group-invite.service';
+import { GroupInviteController } from './invites/group-invite.controller';
+import { MailModule } from '../mail/mail.module';
+import { User } from '../users/entities/user.entity';
 
 /**
  * GroupsModule manages ROSCA group entities in the database.
@@ -21,19 +26,21 @@ import { QueueModule } from '../bullmq/queue.module';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Group, Membership, PayoutTransaction]),
+    TypeOrmModule.forFeature([Group, Membership, PayoutTransaction, GroupInvite, User]),
     NotificationsModule,
     StellarModule,
     QueueModule,
+    MailModule,
   ],
-  controllers: [GroupsController, GroupsV2Controller],
+  controllers: [GroupsController, GroupsV2Controller, GroupInviteController],
   providers: [
     GroupsService,
     RoundService,
     PayoutService,
     WinstonLogger,
     JwtAuthGuard,
+    GroupInviteService,
   ],
-  exports: [GroupsService, RoundService, PayoutService],
+  exports: [GroupsService, RoundService, PayoutService, GroupInviteService],
 })
 export class GroupsModule {}
