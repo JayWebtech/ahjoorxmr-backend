@@ -1,0 +1,27 @@
+{
+  "request": {
+    "method": "GET",
+    "urlPattern": "/stellar/accounts/.*"
+  },
+  "response": {
+    "status": 200,
+    "jsonBody": {
+      "id": "GBUQWP3BOUZX34ULNQG23RQ6F4BVWCIBTCRHQCW74W7NIUML4TJJLQ",
+      "account_id": "GBUQWP3BOUZX34ULNQG23RQ6F4BVWCIBTCRHQCW74W7NIUML4TJJLQ",
+      "balances": [
+        {
+          "balance": "1000.0000000",
+          "asset_type": "native"
+        }
+      ],
+      "sequence": "1234567890",
+      "subentry_count": 0,
+      "home_domain": "example.com",
+      "last_modified_ledger": 12345,
+      "last_modified_time": "2024-01-01T00:00:00Z"
+    },
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  }
+}

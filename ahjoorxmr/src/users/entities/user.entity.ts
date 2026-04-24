@@ -27,6 +27,9 @@ export class User extends BaseEntity {
   @Column({ type: 'varchar', length: 255, nullable: true, unique: true })
   email?: string | null;
 
+  @Column({ type: 'boolean', default: false })
+  emailVerified: boolean;
+
   @Column({ type: 'varchar', length: 255, nullable: true })
   username?: string | null;
 
@@ -99,6 +102,9 @@ export class User extends BaseEntity {
 
   @Column({ type: 'timestamp', nullable: true })
   lastLoginAt?: Date | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  profileIncompleteReminderSentAt?: Date | null;
 
   @Column({ type: 'timestamp', nullable: true })
   bannedAt?: Date | null;

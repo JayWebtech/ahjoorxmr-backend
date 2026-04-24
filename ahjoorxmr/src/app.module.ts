@@ -51,6 +51,8 @@ import { MetricsModule } from './metrics/metrics.module';
 import { MetricsInterceptor } from './metrics/metrics.interceptor';
 import { WebhookModule } from './webhooks/webhook.module';
 import { AdminModule } from './admin/admin.module';
+import { PenaltiesModule } from './penalties/penalties.module';
+import { Penalty } from './penalties/entities/penalty.entity';
 
 @Module({
   imports: [
@@ -86,6 +88,7 @@ import { AdminModule } from './admin/admin.module';
             QueryAnalysis,
             ApiKey,
             GroupInvite,
+            Penalty,
           ],
           synchronize: isDevelopment, // Auto-create tables only in development
           logging: isDevelopment, // Enable logging only in development
@@ -132,6 +135,7 @@ import { AdminModule } from './admin/admin.module';
     MetricsModule,
     WebhookModule,
     AdminModule,
+    PenaltiesModule,
   ],
   controllers: [AppController],
   providers: [
@@ -158,7 +162,7 @@ import { AdminModule } from './admin/admin.module';
       useClass: ReadReplicaInterceptor,
     },
     ReadQueryRunner,
-      useClass: MetricsInterceptor,
+    useClass: MetricsInterceptor,
     },
   ],
 })

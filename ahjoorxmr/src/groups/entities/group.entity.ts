@@ -72,6 +72,12 @@ export class Group extends BaseEntity {
   @Column({ type: 'varchar', length: 64, nullable: true, default: 'UTC' })
   timezone: string | null;
 
+  @Column('decimal', { precision: 5, scale: 4, default: 0.05 })
+  penaltyRate: number;
+
+  @Column('int', { default: 24 })
+  gracePeriodHours: number;
+
   @DeleteDateColumn({ nullable: true })
   deletedAt: Date | null;
 

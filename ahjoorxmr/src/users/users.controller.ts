@@ -32,6 +32,8 @@ import { UserResponseDto } from './dto/user-response.dto';
 import { GdprService } from './gdpr.service';
 import { ApiKeysService } from '../api-keys/api-keys.service';
 import { ApiKeyResponseDto } from '../api-keys/dto/api-key.dto';
+import { ProfileCompletenessService } from './services/profile-completeness.service';
+import { ProfileCompletenessDto } from './dtos/profile-completeness.dto';
 
 @ApiTags('Users')
 @Controller('users')
@@ -41,7 +43,8 @@ export class UsersController {
     private readonly usersService: UsersService,
     private readonly gdprService: GdprService,
     private readonly apiKeysService: ApiKeysService,
-  ) {}
+    private readonly profileCompletenessService: ProfileCompletenessService,
+  ) { }
   @Get()
   @Version('1')
   @Roles('admin')
@@ -183,6 +186,21 @@ export class UsersController {
       revokedAt: k.revokedAt,
       createdAt: k.createdAt,
     }));
+  }
+
+  @Get('me/profile')
+  @Version('1')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Get profile completeness score',
+    description: 'Returns profile completeness score (0-100) with completed and pending steps.',
+  })
+  @ApiResponse({ status: 200, type: ProfileCompletenessDto })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async getProfileCompleteness(
+    @Request() req: { user: { id: string } },
+  ): Promise<ProfileCompletenessDto> {
+    return this.profileCompletenessService.calculateProfileCompleteness(req.user.id);
   }
 
   @Post('me/data-export')

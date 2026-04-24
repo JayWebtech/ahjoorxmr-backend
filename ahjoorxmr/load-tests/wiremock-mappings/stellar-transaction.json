@@ -1,0 +1,19 @@
+{
+  "request": {
+    "method": "POST",
+    "urlPattern": "/stellar/transactions"
+  },
+  "response": {
+    "status": 200,
+    "jsonBody": {
+      "hash": "{{randomValue type='UUID'}}",
+      "ledger": 12345,
+      "created_at": "2024-01-01T00:00:00Z",
+      "source_account": "GBUQWP3BOUZX34ULNQG23RQ6F4BVWCIBTCRHQCW74W7NIUML4TJJLQ",
+      "successful": true
+    },
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  }
+}

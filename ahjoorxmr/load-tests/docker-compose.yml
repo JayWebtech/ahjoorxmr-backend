@@ -1,0 +1,90 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: load-test-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ahjoorxmr
+    ports:
+      - '5433:5432'
+    volumes:
+      - postgres_load_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: load-test-redis
+    restart: unless-stopped
+    command: redis-server --requirepass password --appendonly yes
+    ports:
+      - '6380:6379'
+    volumes:
+      - redis_load_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  wiremock:
+    image: wiremock/wiremock:3.0.1
+    container_name: load-test-wiremock
+    restart: unless-stopped
+    ports:
+      - '8080:8080'
+    volumes:
+      - ./wiremock-mappings:/home/wiremock/mappings
+    command: --global-response-templating
+
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: load-test-app
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: ahjoorxmr
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: password
+      JWT_SECRET: test-secret-key-for-load-testing
+      JWT_EXPIRATION: 3600
+      REFRESH_TOKEN_EXPIRATION: 604800
+      STELLAR_NETWORK: testnet
+      STELLAR_RPC_URL: http://wiremock:8080/stellar
+      BASE_URL: http://localhost:3000
+      CORS_ALLOWED_ORIGINS: http://localhost:3000,http://localhost:3001
+      CORS_ALLOW_CREDENTIALS: 'true'
+    ports:
+      - '3000:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      wiremock:
+        condition: service_started
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:3000/health']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_load_data:
+    driver: local
+  redis_load_data:
+    driver: local
