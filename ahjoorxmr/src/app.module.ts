@@ -28,6 +28,8 @@ import { KycDocument } from './kyc/entities/kyc-document.entity';
 import { PayoutTransaction } from './groups/entities/payout-transaction.entity';
 import { JobFailure } from './bullmq/entities/job-failure.entity';
 import { QueryAnalysis } from './database/entities/query-analysis.entity';
+import { ApiKey } from './api-keys/entities/api-key.entity';
+import { GroupInvite } from './groups/entities/group-invite.entity';
 import { KycModule } from './kyc/kyc.module';
 import { StellarModule } from './stellar/stellar.module';
 import { EventListenerModule } from './event-listener/event-listener.module';
@@ -47,6 +49,7 @@ import { ReadQueryRunner } from './database/read-query-runner';
 import { MetricsModule } from './metrics/metrics.module';
 import { MetricsInterceptor } from './metrics/metrics.interceptor';
 import { WebhookModule } from './webhooks/webhook.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -80,6 +83,8 @@ import { WebhookModule } from './webhooks/webhook.module';
             PayoutTransaction,
             JobFailure,
             QueryAnalysis,
+            ApiKey,
+            GroupInvite,
           ],
           synchronize: isDevelopment, // Auto-create tables only in development
           logging: isDevelopment, // Enable logging only in development
@@ -125,6 +130,7 @@ import { WebhookModule } from './webhooks/webhook.module';
     MailModule,
     MetricsModule,
     WebhookModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [

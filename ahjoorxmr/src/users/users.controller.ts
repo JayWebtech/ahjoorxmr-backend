@@ -30,6 +30,8 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UsersService } from './users.service';
 import { UserResponseDto } from './dto/user-response.dto';
 import { GdprService } from './gdpr.service';
+import { ApiKeysService } from '../api-keys/api-keys.service';
+import { ApiKeyResponseDto } from '../api-keys/dto/api-key.dto';
 
 @ApiTags('Users')
 @Controller('users')
@@ -38,6 +40,7 @@ export class UsersController {
   constructor(
     private readonly usersService: UsersService,
     private readonly gdprService: GdprService,
+    private readonly apiKeysService: ApiKeysService,
   ) {}
   @Get()
   @Version('1')
@@ -159,6 +162,27 @@ export class UsersController {
   async findOne(@Param('id') id: string): Promise<UserResponseDto> {
     const user = await this.usersService.findById(id);
     return new UserResponseDto(user);
+  }
+
+  @Get('me/api-keys')
+  @Version('1')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'List own API keys' })
+  @ApiResponse({ status: 200, type: [ApiKeyResponseDto] })
+  async getMyApiKeys(
+    @Request() req: { user: { id: string } },
+  ): Promise<ApiKeyResponseDto[]> {
+    const keys = await this.apiKeysService.findAllForUser(req.user.id);
+    return keys.map((k) => ({
+      id: k.id,
+      name: k.name,
+      ownerId: k.ownerId,
+      scopes: k.scopes,
+      lastUsedAt: k.lastUsedAt,
+      expiresAt: k.expiresAt,
+      revokedAt: k.revokedAt,
+      createdAt: k.createdAt,
+    }));
   }
 
   @Post('me/data-export')
